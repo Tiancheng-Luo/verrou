@@ -32,6 +32,7 @@ import subprocess
 import getopt
 import functools
 
+
 def failure():
     sys.exit(42)
 
@@ -57,22 +58,18 @@ def getResult(subProcess):
     return subProcess.returncode
 
 
-def verrou_run_stat(script_run, rep, listOfStat):
+def verrou_run_stat(script_run, rep, listOfStat, nbProc=1):
     if not os.path.exists(rep):
         os.mkdir(rep)
+    listOfComputation=[]
 
-    for roundingMode in ["nearest","upward","downward", "toward_zero","farthest","random","random_det","average","float"]:
+    for roundingMode in ["nearest","upward","downward", "toward_zero","farthest","random","random_det","average", "average_det","float"]:
         for i in range(listOfStat[roundingMode]):
             name=("%s-%d")%(roundingMode,i)
             repName=os.path.join(rep,name)
             endFile=os.path.join(repName,"std")
             if not os.path.exists(endFile+".out"):
-                print(repName)
-                os.mkdir(repName)
-                subProcessRun=runCmdAsync([script_run, repName],
-                                          endFile,
-                                          {"VERROU_ROUNDING_MODE":roundingMode })
-                getResult(subProcessRun)
+                listOfComputation+=[{"script_run": script_run, "repName":repName, "env": {"VERROU_ROUNDING_MODE":roundingMode }, "endFile":endFile }]
 
     listOfMcaKey=[ (x.split("-")[1:] +[listOfStat[x]])  for x in listOfStat.keys()  if x.startswith("mca")  ]
     for mcaConfig in listOfMcaKey:
@@ -84,19 +81,47 @@ def verrou_run_stat(script_run, rep, listOfStat):
             repName=os.path.join(rep,name)
             endFile=os.path.join(repName,"std")
             if not os.path.exists(endFile+".out"):
-                print(repName)
-                os.mkdir(repName)
-                subProcessRun=runCmdAsync([script_run, repName],
-                                          endFile,
-                                          {"VERROU_BACKEND":"mcaquad",
-                                           "VERROU_MCA_MODE":mode,
-                                           "VERROU_MCA_PRECISION_DOUBLE": doublePrec,
-                                           "VERROU_MCA_PRECISION_FLOAT": floatPrec})
-                getResult(subProcessRun)
+                env={"VERROU_BACKEND":"mcaquad",
+                     "VERROU_MCA_MODE":mode,
+                     "VERROU_MCA_PRECISION_DOUBLE": doublePrec,
+                     "VERROU_MCA_PRECISION_FLOAT": floatPrec}
+                listOfComputation+=[{"script_run": script_run, "repName":repName, "env": {"VERROU_ROUNDING_MODE":roundingMode }, "endFile":endFile }]
+    if nbProc==1:
+        runComputationListSeq(listOfComputation)
+    else:
+        runComputationListPar(listOfComputation, nbProc)
+
+
+def runComputationListSeq(listOfComputation):
+    for computation in listOfComputation:
+        repName=computation["repName"]
+        print(repName)
+        os.mkdir(repName)
+        subProcessRun=runCmdAsync([computation["script_run"], computation["repName"]],
+                                  computation["endFile"], computation["env"])
+        getResult(subProcessRun)
+
+
+def runComputationListPar(listOfComputation, num_threads=4):
+    import concurrent.futures
+
+    def task(computation):
+         repName=computation["repName"]
+         print(repName)
+         os.mkdir(repName)
+         subProcessRun=runCmdAsync([computation["script_run"], repName],
+                                   computation["endFile"], computation["env"])
+         getResult(subProcessRun)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures={executor.submit(task, work) for work in listOfComputation}
+        concurrent.futures.wait(futures)
+
+
 
 
 def extractLoopOverComputation(rep, listOfStat, extractFunc):
-    roundingModeList=["nearest","upward","downward", "toward_zero","farthest","random", "random_det","average","float"]
+    roundingModeList=["nearest","upward","downward", "toward_zero","farthest","random", "random_det","average","average_det","float"]
     resDict={}
 
     for roundingMode in roundingModeList :
@@ -252,7 +277,7 @@ def plot_hist(data, png=False):
     listOfScalar=[] # rounding mode plotted with vertical ligne
     listOfTab=[]    # rounding mode plotted with histogram
     mcaMode=[ x  for x in data.keys()  if x.startswith("mca")  ]
-    verrouMode=["nearest","upward","downward", "toward_zero","farthest","random","random_det","average","float"]
+    verrouMode=["nearest","upward","downward", "toward_zero","farthest","random","random_det","average","average_det","float"]
     for roundingMode in verrouMode+mcaMode:
         if data[roundingMode]==None:
             continue
@@ -313,6 +338,7 @@ class config_stat:
     def __init__(self, argv):
         self.isMontcarlo=False
         self._nbSample=200
+        self._nbProc=1
         self._rep="verrou.stat"
         self.listMCA=[]
         self.png=False
@@ -321,12 +347,13 @@ class config_stat:
         self.random=True
         self.average=True
         self.random_det=True
+        self.average_det=True
 
         self.parseOpt(argv[1:])
 
     def parseOpt(self,argv):
         try:
-            opts,args=getopt.getopt(argv, "thms:r:p:",["time","help","montecarlo","no-random", "no-random_det","no-average", "samples=","rep=", "png=", "mca="])
+            opts,args=getopt.getopt(argv, "thms:r:p:",["time","help","montecarlo","no-random", "no-random_det","no-average", "no-average_det","samples=","np=","rep=", "png=", "mca="])
         except getopt.GetoptError:
             self.help()
 
@@ -344,6 +371,10 @@ class config_stat:
             if opt in ("-s","--samples"):
                 self._nbSample=int(arg)
                 continue
+            if opt in ("--np"):
+                self._nbProc=int(arg)
+                continue
+
             if opt in ("-r","--rep"):
                 self._rep=arg
                 continue
@@ -358,6 +389,9 @@ class config_stat:
                 continue
             if opt in ("--no-average"):
                 self.average=False
+                continue
+            if opt in ("--no-average_det"):
+                self.average_det=False
                 continue
 
             if opt in ("--mca",):
@@ -411,11 +445,13 @@ class config_stat:
         print( "%s [options] run.sh extract.sh or %s -t[or --time] [options] run.sh extractTime.sh extractVar.sh "%(name,name)  )
         print( "\t -r --rep=:  working directory")
         print( "\t -s --samples= : number of samples")
+        print( "\t --np= : number of processor")
         print( "\t -p --png= : png file to export plot")
         print( "\t -m --montecarlo : stochastique analysis of deterministic rounding mode")
         print( "\t --no-random :  ignore random rounding mode")
         print( "\t --no-random_det :  ignore random_det rounding mode")
         print( "\t --no-average :  ignore average rounding mode")
+        print( "\t --no-average_det :  ignore average_det rounding mode")
         print( "\t --mca=rr-53-24 : add mca ins the study")
 
     def runScript(self):
@@ -446,6 +482,7 @@ class config_stat:
         nbSamples={"random":self._nbSample,
                    "random_det":self._nbSample,
                    "average":self._nbSample,
+                   "average_det":self._nbSample,
                    "nearest":nbDet,
                    "upward":nbDet,
                    "downward":nbDet,
@@ -458,17 +495,23 @@ class config_stat:
             nbSamples["random"]=0
         if not self.average:
             nbSamples["average"]=0
+        if not self.average_det:
+            nbSamples["average_det"]=0
 
 
         for mcaMode in self.listMCA:
                nbSamples[mcaMode]=self._nbSample
         return nbSamples
 
+    def getNbProc(self):
+        return self._nbProc
+
 if __name__=="__main__":
     conf=config_stat(sys.argv)
     nbSamples=conf.getSampleConfig()
+    nbProc=conf.getNbProc()
 
-    verrou_run_stat(conf.runScript(), conf.repName(), nbSamples)
+    verrou_run_stat(conf.runScript(), conf.repName(), nbSamples, nbProc)
 
     if conf.isHist():
         dataExtracted=verrou_extract_stat(conf.extractScript(), conf.repName(), nbSamples)

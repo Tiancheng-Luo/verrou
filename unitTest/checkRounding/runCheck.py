@@ -30,7 +30,7 @@ import shlex
 import re
 
 stdRounding=["nearest", "toward_zero", "downward", "upward" ]
-valgrindRounding=stdRounding + ["random", "random_det","average", "float", "farthest", "memcheck" ,"ftz"]
+valgrindRounding=stdRounding + ["random", "random_det","average","average_det", "float", "farthest", "memcheck" ,"ftz"]
 
 
 def printRes(res):
@@ -42,14 +42,14 @@ def printRes(res):
         print(line[0:-1])
 
 
-def runCmd(cmd,expectedResult=0, printCmd=True, printCwd=True):    
+def runCmd(cmd,expectedResult=0, printCmd=True, printCwd=True):
     if printCmd:
         print("Cmd:", cmd)
 
     if printCwd:
         print("Cwd:", os.getcwd())
     #lancement de la commande
-    
+
     process=sp.Popen(args=shlex.split(cmd),
                      stdout=sp.PIPE,
                      stderr=sp.PIPE)
@@ -58,36 +58,33 @@ def runCmd(cmd,expectedResult=0, printCmd=True, printCwd=True):
 
     resStd=resStdStr.decode('utf8').splitlines()
     resErr=resErrStr.decode('utf8').splitlines()
-     
+
     error=process.wait()
 
     #Traitement des erreurs
-    if error !=expectedResult: 
+    if error !=expectedResult:
         msg = "Error with the execution of : " +cmd+"\n"
         msg+= "\t error is " +str(error) +"\n"
-        msg+= "\t expectedResult is " +str(expectedResult)        
+        msg+= "\t expectedResult is " +str(expectedResult)
         print(msg)
         printRes((resStd, resErr))
 
-        
         sys.exit(42)
     return (resStd, resErr)
 
-
-        
 
 class cmdPrepare:
     def __init__(self, arg):
         self.valgrindPath=os.path.join(os.environ["INSTALLPATH"], "bin", "valgrind")
         self.execPath=arg
-    
-    def run(self,env="fenv", rounding="nearest"):
+
+        def run(self,env="fenv", rounding="nearest"):
         self.checkRounding(env, rounding)
         cmd=None
         if env=="fenv":
             cmd=self.execPath + " fenv "+ rounding
-            
-        if env=="valgrind":
+
+            if env=="valgrind":
             if rounding=="memcheck":
                 cmd=self.valgrindPath + " --tool=memcheck " +self.execPath +" valgrind"
             else:
@@ -95,9 +92,9 @@ class cmdPrepare:
 
         return runCmd(cmd)
         # print cmd
-            
+
     def checkRounding(self, env, rounding):
-        
+
         if env=="fenv" and rounding in stdRounding:
             return True
         if env=="valgrind" and rounding in valgrindRounding:
@@ -114,7 +111,7 @@ def generatePairOfAvailableComputation():
     for i in valgrindRounding:
         res+=[("valgrind", i)]
     return res
-        
+
 
 def verrouCerrFilter(res):
     pidStr=(res[0].split())[0]
@@ -133,12 +130,11 @@ def getDiff(outPut, testName):
     for line in outPut[0]:
         if line.startswith(testName+":"):
             return float(line.split()[-1])
-    print("unknown testName: ", testName)    
+    print("unknown testName: ", testName)
     return None
 
 
 
-        
 class errorCounter:
 
     def __init__(self,ok=0,ko=0,warn=0):
@@ -167,12 +163,12 @@ class errorCounter:
         print("\tOK : "+str(self.ok))
         print("\tKO : "+str(self.ko))
         print("\tWarning : "+str(self.warn))
-        
+
 def checkVerrouInvariant(allResult):
     ref=allResult[("valgrind", "nearest")][1]
     ko=0
     ok=0
-    for rounding in valgrindRounding:        
+    for rounding in valgrindRounding:
         if rounding in ["nearest", "memcheck"]:
             #nearest : because it is the ref
             #memcheck : because it is not verrou
@@ -190,7 +186,7 @@ def checkVerrouInvariant(allResult):
             ok+=1
     return errorCounter(ok, ko, 0)
 
-def diffRes(res1, res2):    
+def diffRes(res1, res2):
     if len(res1)!=len(res2):
         print("Wrong number of line")
         print("fenv", res1)
@@ -214,7 +210,7 @@ def checkRoundingInvariant(allResult):
         fenvRes=(allResult["fenv", rounding])[0]
         valRes=(allResult["valgrind", rounding])[0]
         if fenvRes!=valRes:
-            print("KO : incoherent comparison between fenv and valgrind ("+rounding+")")            
+            print("KO : incoherent comparison between fenv and valgrind ("+rounding+")")
             ko+=diffRes(fenvRes, valRes)
         else:
             ok+=1
@@ -237,7 +233,7 @@ class assertRounding:
         self.diff_toward_zeroNative  =getDiff(allResult[("fenv", "toward_zero")], testName)
         self.diff_downwardNative     =getDiff(allResult[("fenv", "downward")], testName)
         self.diff_upwardNative       =getDiff(allResult[("fenv", "upward")], testName)
-        
+
         self.diff_nearest      =getDiff(allResult[("valgrind", "nearest")], testName)
         self.diff_toward_zero  =getDiff(allResult[("valgrind", "toward_zero")], testName)
         self.diff_downward     =getDiff(allResult[("valgrind", "downward")], testName)
@@ -248,8 +244,9 @@ class assertRounding:
 
 
         self.diff_random       =getDiff(allResult[("valgrind", "random")], testName)      
-        self.diff_random_det   =getDiff(allResult[("valgrind", "random_det")], testName)      
+        self.diff_random_det   =getDiff(allResult[("valgrind", "random_det")], testName)
         self.diff_average      =getDiff(allResult[("valgrind", "average")], testName)     
+        self.diff_average_det  =getDiff(allResult[("valgrind", "average_det")], testName)
 
         self.KoStr="Warning"
         self.warnBool=True
@@ -271,7 +268,7 @@ class assertRounding:
             self.warn+=1
         else:
             self.ko+=1
-            
+
     def printOk(self, str):
         print("OK : "+self.testName+ " "+str)
         self.ok+=1
@@ -284,10 +281,10 @@ class assertRounding:
         else:
             self.printOk(str1+ "="+str(value))
 
-        
+
     def assertEqual(self, str1, str2):
         value1= eval("self.diff_"+str1)
-        value2= eval("self.diff_"+str2)            
+        value2= eval("self.diff_"+str2)
 
         if value1!= value2:
             self.printKo(str1+ "!="+str2 + " "+str(value1) + " " +str(value2))
@@ -296,17 +293,16 @@ class assertRounding:
 
     def assertLeq(self, str1, str2):
         value1= eval("self.diff_"+str1)
-        value2= eval("self.diff_"+str2)            
+        value2= eval("self.diff_"+str2)
 
         if value1 <= value2:
             self.printOk(str1+ "<="+str2)
         else:
             self.printKo(str1+ ">"+str2 + " "+str(value1) + " " +str(value2))
 
-        
     def assertLess(self, str1, str2):
         value1= eval("self.diff_"+str1)
-        value2= eval("self.diff_"+str2)            
+        value2= eval("self.diff_"+str2)
 
         if value1 < value2:
             self.printOk(str1+ "<"+str2)
@@ -329,8 +325,6 @@ class assertRounding:
             self.assertEqual(rd, rd+"Native")
 
 
-    
-    
 def checkTestPositiveAndOptimistRandomVerrou(allResult,testList,typeTab=["<double>", "<float>"]):
     ok=0
     warn=0
@@ -352,17 +346,26 @@ def checkTestPositiveAndOptimistRandomVerrou(allResult,testList,typeTab=["<doubl
             testCheck.assertLess("downward", "random")
             testCheck.assertLess("downward", "random_det")
             testCheck.assertLess("downward", "average")
+            testCheck.assertLess("downward", "average_det")
 
             testCheck.assertLess("random", "upward")
             testCheck.assertLess("random_det", "upward")
 
             testCheck.assertLess("average", "upward")
+            testCheck.assertLess("average_det", "upward")
 
             testCheck.assertAbsLess("average", "random")
             testCheck.assertAbsLess("average", "random_det")
             testCheck.assertAbsLess("average", "upward")
             testCheck.assertAbsLess("average", "downward")
             testCheck.assertAbsLess("average", "nearest")
+
+            testCheck.assertAbsLess("average_det", "random")
+            testCheck.assertAbsLess("average_det", "random_det")
+            testCheck.assertAbsLess("average_det", "upward")
+            testCheck.assertAbsLess("average_det", "downward")
+            testCheck.assertAbsLess("average_det", "nearest")
+
 
             ok+=testCheck.ok
             ko+=testCheck.ko
@@ -410,16 +413,24 @@ def checkTestNegativeAndOptimistRandomVerrou(allResult,testList,typeTab=["<doubl
             testCheck.assertLess("downward", "random")
             testCheck.assertLess("downward", "random_det")
             testCheck.assertLess("downward", "average")
-            
+            testCheck.assertLess("downward", "average_det")
+
             testCheck.assertLess("random", "upward")
             testCheck.assertLess("random_det", "upward")
             testCheck.assertLess("average", "upward")
+            testCheck.assertLess("average_det", "upward")
 
             testCheck.assertAbsLess("average", "random")
             testCheck.assertAbsLess("average", "random_det")
             testCheck.assertAbsLess("average", "upward")
             testCheck.assertAbsLess("average", "downward")
             testCheck.assertAbsLess("average", "nearest")
+
+            testCheck.assertAbsLess("average_det", "random")
+            testCheck.assertAbsLess("average_det", "random_det")
+            testCheck.assertAbsLess("average_det", "upward")
+            testCheck.assertAbsLess("average_det", "downward")
+            testCheck.assertAbsLess("average_det", "nearest")
 
             ok+=testCheck.ok
             ko+=testCheck.ko
@@ -448,17 +459,19 @@ def checkTestPositive(allResult,testList, typeTab=["<double>", "<float>"]):
         testCheck.assertLess("downward", "random")
         testCheck.assertLess("downward", "random_det")
         testCheck.assertLess("downward", "average")
+        testCheck.assertLess("downward", "average_det")
 
         testCheck.assertLess("random", "upward")
-        testCheck.assertLess("random_det", "upward")                
+        testCheck.assertLess("random_det", "upward")
         testCheck.assertLess("average", "upward")
+        testCheck.assertLess("average_det", "upward")
 
         ok+=testCheck.ok
         ko+=testCheck.ko
         warn+=testCheck.warn
-        
+
     return errorCounter(ok, ko, warn)
-        
+
 def checkTestNegative(allResult,testList,typeTab=["<double>", "<float>"]):
     ok=0
     warn=0
@@ -481,10 +494,12 @@ def checkTestNegative(allResult,testList,typeTab=["<double>", "<float>"]):
             testCheck.assertLess("downward", "random")
             testCheck.assertLess("downward", "random_det")
             testCheck.assertLess("downward", "average")
+            testCheck.assertLess("downward", "average_det")
 
             testCheck.assertLess("random", "upward")
             testCheck.assertLess("random_det", "upward")
             testCheck.assertLess("average", "upward")
+            testCheck.assertLess("average_det", "upward")
 
             ok+=testCheck.ok
             ko+=testCheck.ko
@@ -512,10 +527,13 @@ def checkTestPositiveBetweenTwoValues(allResult,testList, typeTab=["<double>", "
 
         testCheck.assertLeq("downward", "random")
         testCheck.assertLeq("downward", "average")
+        testCheck.assertLeq("downward", "random_det")
+        testCheck.assertLeq("downward", "average_det")
 
         testCheck.assertLeq("random", "upward")
         testCheck.assertLeq("random_det", "upward")
         testCheck.assertLeq("average", "upward")
+        testCheck.assertLeq("average_det", "upward")
 
         ok+=testCheck.ok
         ko+=testCheck.ko
@@ -544,10 +562,12 @@ def checkTestNegativeBetweenTwoValues(allResult,testList, typeTab=["<double>", "
         testCheck.assertLeq("downward", "random")
         testCheck.assertLeq("downward", "random_det")
         testCheck.assertLeq("downward", "average")
+        testCheck.assertLeq("downward", "average_det")
 
         testCheck.assertLeq("random", "upward")
         testCheck.assertLeq("random_det", "upward")
         testCheck.assertLeq("average", "upward")
+        testCheck.assertLeq("average_det", "upward")
 
         ok+=testCheck.ok
         ko+=testCheck.ko
@@ -579,6 +599,7 @@ def checkExact(allResult,testList,typeTab=["<double>", "<float>"]):
             testCheck.assertEqual("downward", "random")
             testCheck.assertEqual("downward", "random_det")
             testCheck.assertEqual("downward", "average")
+            testCheck.assertEqual("downward", "average_det")
 
             ok+=testCheck.ok
             ko+=testCheck.ko
@@ -597,7 +618,7 @@ if __name__=='__main__':
             allResult[(env, rounding)]=(cout, verrouCerrFilter(cerr))
         else:
             allResult[(env, rounding)]=(cout, cerr)
-            
+
     # printRes(allResult[("fenv" ,"toward_zero")])
     # printRes(allResult[("valgrind" ,"toward_zero")])
     typeTab=["<double>", "<float>"]#,"<long double>"]
@@ -613,7 +634,7 @@ if __name__=='__main__':
     eCount+=checkTestNegative(allResult, testList=["testInvariantProdDivm"], typeTab=typeTab)
     eCount+=checkTestPositiveAndOptimistRandomVerrou(allResult, testList=["testFma"], typeTab=["<double>", "<float>"])
     eCount+=checkTestNegativeAndOptimistRandomVerrou(allResult, testList=["testFmam"], typeTab=["<double>", "<float>"])
-        
+
     eCount+=checkExact(allResult, testList=["testMixSseLlo"], typeTab=["<double>", "<float>"])
 
     eCount+=checkExact(allResult, testList=["testCast", "testCastm"], typeTab=["<double>"])

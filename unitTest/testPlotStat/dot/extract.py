@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-blockSize=32
+blockSize=4
 
 for line in open(sys.argv[1]+"/out"):
     if line.startswith("1-dot("+str(blockSize)+")"):

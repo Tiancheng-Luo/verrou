@@ -37,30 +37,30 @@
 
 #define VERROU_LOWGEN
 
-#ifndef VERROU_LOWGEN
+//#ifndef VERROU_LOWGEN
 #include "../backend_mcaquad/common/tinymt64.h"
-#endif
+//#endif
 
 
 
 typedef struct Vr_Rand_ Vr_Rand;
 struct Vr_Rand_ {
+  uint64_t current_;
 #ifdef VERROU_LOWGEN
-  uint64_t current_;
   uint64_t next_;
-  uint64_t seed_;
-  int32_t count_;
 #else
-  uint64_t current_;
   tinymt64_t gen_;
-  uint64_t seed_;
-  int32_t count_;
 #endif
+  uint64_t seed_;
+  uint32_t count_;
+
+  uint64_t seedParam[4];
 };
 
 //extern Vr_Rand vr_rand;
 
 Vr_Rand vr_rand;
+
 
 #include "vr_rand_implem.h"
 

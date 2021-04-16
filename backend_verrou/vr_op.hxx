@@ -35,6 +35,7 @@
 
 #include "vr_isNan.hxx"
 
+
 template<class> struct realTypeHelper;
 
 template<>
@@ -75,9 +76,10 @@ enum opHash : uint64_t{
 };
 
 enum typeHash : uint64_t{
-  floatHash,
-  doubleHash,
-  otherHash
+  floatHash=0,
+  doubleHash=1,
+  otherHash=2,
+  nbTypeHash=3
 };
 
 
@@ -115,7 +117,7 @@ struct vr_packArg<REALTYPE,1>{
   typedef typename realTypeHelper<REALTYPE>::SimdBasicType SimdBasicType;
   typedef vr_packArg<SimdBasicType,1> SubPack;
 
-  inline vr_packArg(const RealType& v1):arg1(v1)
+  inline vr_packArg(const RealType& v1):arg1(v1),arg2(v1)
   {
   };
 
@@ -135,7 +137,33 @@ struct vr_packArg<REALTYPE,1>{
       return realToUint64_reinterpret_cast<REALTYPE>(arg1);
   }
 
+  template<class OP>
+  inline uint64_t getMultiply(const Vr_Rand * r, OP* null)const{
+    const uint64_t b=r->seedParam[0];
+    const uint64_t a1=r->seedParam[1];
+    const uint64_t a2=r->seedParam[2];
+
+    const uint64_t x1= realToUint64_reinterpret_cast<REALTYPE>(arg1);
+    const uint64_t x2= OP::getHash();
+
+    // We do not take into account the OP
+    return (a1*x1+a2*x2+b);
+  }
+
+  template<class OP>
+  inline uint64_t getPreciseHash(const Vr_Rand * r, OP* null)const{
+    const uint64_t keys[3]={
+      r->seedParam[0],
+      realToUint64_reinterpret_cast<REALTYPE>(arg1),
+      OP::getHash()
+    };
+    tinymt64_t localGen;
+    tinymt64_init_by_array(&localGen, keys, 3 );
+    return tinymt64_generate_uint64(&localGen );
+  }
+
   const RealType& arg1;
+  const RealType arg2;
 };
 
 template<class REALTYPE>
@@ -162,8 +190,33 @@ struct vr_packArg<REALTYPE,2>{
     return (isNanInf<RealType>(arg1) || isNanInf<RealType>(arg2));
   }
 
-  inline uint64_t getHash()const{
-      return realToUint64_reinterpret_cast<REALTYPE>(arg1) ^ realToUint64_reinterpret_cast<REALTYPE>(arg2);
+  template<class OP>
+  inline uint64_t getMultiply(const Vr_Rand * r, OP* null)const{
+    const uint64_t b=r->seedParam[0];
+    const uint64_t a1=r->seedParam[1];
+    const uint64_t a2=r->seedParam[2];
+    const uint64_t a3=r->seedParam[3];
+
+    const uint64_t x1= realToUint64_reinterpret_cast<REALTYPE>(arg1);
+    const uint64_t x2= realToUint64_reinterpret_cast<REALTYPE>(arg2);
+    const uint64_t x3= OP::getHash();
+
+    return (a1*x1+a2*x2+a3*x3 +b);
+  }
+
+
+  template<class OP>
+  inline uint64_t getPreciseHash(const Vr_Rand * r, OP* null)const{
+    const uint64_t keys[4]={
+      r->seedParam[0],
+      realToUint64_reinterpret_cast<REALTYPE>(arg1),
+      realToUint64_reinterpret_cast<REALTYPE>(arg2),
+      OP::getHash()
+    };
+
+    tinymt64_t localGen;
+    tinymt64_init_by_array(&localGen, keys, 4 );
+    return tinymt64_generate_uint64(&localGen );
   }
 
   const RealType& arg1;
@@ -195,9 +248,35 @@ struct vr_packArg<REALTYPE,3>{
     return (isNanInf<RealType>(arg1) || isNanInf<RealType>(arg2) || isNanInf<RealType>(arg3) );
   }
 
-  inline uint64_t getHash()const{
-      return realToUint64_reinterpret_cast<REALTYPE>(arg1) ^ realToUint64_reinterpret_cast<REALTYPE>(arg2) ^ realToUint64_reinterpret_cast<REALTYPE>(arg3);
+
+  template<class OP>
+  inline uint64_t getMultiply(const Vr_Rand * r, OP* null)const{
+    const uint64_t b=r->seedParam[0];
+    const uint64_t a1=r->seedParam[1];
+    const uint64_t a2=r->seedParam[2];
+    const uint64_t a3=r->seedParam[3];
+
+    const uint64_t x1= realToUint64_reinterpret_cast<REALTYPE>(arg1);
+    const uint64_t x2= realToUint64_reinterpret_cast<REALTYPE>(arg2);
+    const uint64_t x3= realToUint64_reinterpret_cast<REALTYPE>(arg3);
+    // We do not take into account the OP
+    return (a1*x1+a2*x2+a3*x3 +b);
   }
+
+  template<class OP>
+  inline uint64_t getPreciseHash(const Vr_Rand * r, OP* null)const{
+    const uint64_t keys[5]={
+      r->seedParam[0],
+      realToUint64_reinterpret_cast<REALTYPE>(arg1),
+      realToUint64_reinterpret_cast<REALTYPE>(arg2),
+      realToUint64_reinterpret_cast<REALTYPE>(arg3),
+      OP::getHash()
+    };
+    tinymt64_t localGen;
+    tinymt64_init_by_array(&localGen, keys, 5);
+    return tinymt64_generate_uint64(&localGen );
+  }
+
 
   const RealType& arg1;
   const RealType& arg2;
@@ -257,7 +336,7 @@ public:
   typedef vr_packArg<RealType,2> PackArgs;
 
   static const char* OpName(){return "add";}
-  static inline uint64_t getHash(){return opHash::addHash ^ getTypeHash<RealType>();}
+  static inline uint64_t getHash(){return opHash::addHash * typeHash::nbTypeHash + getTypeHash<RealType>();}
 
   static inline RealType nearestOp (const PackArgs&  p) {
     const RealType & a(p.arg1);
@@ -300,8 +379,7 @@ public:
   typedef vr_packArg<RealType,2> PackArgs;
 
   static const char* OpName(){return "sub";}
-  static inline uint64_t getHash(){return opHash::subHash ;}
-
+  static inline uint64_t getHash(){return opHash::subHash * typeHash::nbTypeHash + getTypeHash<RealType>();}
 
   static inline RealType nearestOp (const PackArgs&  p) {
     const RealType & a(p.arg1);
@@ -358,7 +436,7 @@ public:
   typedef vr_packArg<RealType,2> PackArgs;
 
   static const char* OpName(){return "mul";}
-  static inline  uint64_t getHash(){return opHash::mulHash ^ getTypeHash<RealType>();}
+  static inline uint64_t getHash(){return opHash::mulHash * typeHash::nbTypeHash + getTypeHash<RealType>();}
 
 
 
@@ -438,7 +516,8 @@ public:
   typedef vr_packArg<RealType,2> PackArgs;
 
   static const char* OpName(){return "mul";}
-    static inline uint64_t getHash(){return opHash::mulHash ^ getTypeHash<RealType>();}
+  static inline uint64_t getHash(){return opHash::mulHash * typeHash::nbTypeHash + getTypeHash<RealType>();}
+
 
 
   static inline RealType nearestOp (const PackArgs& p) {
@@ -516,7 +595,7 @@ public:
   typedef vr_packArg<RealType,2> PackArgs;
 
   static const char* OpName(){return "div";}
-  static inline uint64_t getHash(){return opHash::divHash ^ getTypeHash<RealType>();}
+  static inline uint64_t getHash(){return opHash::divHash * typeHash::nbTypeHash + getTypeHash<RealType>();}
 
 
   static RealType inline nearestOp (const PackArgs& p) {
@@ -569,7 +648,7 @@ public:
 
 
   static const char* OpName(){return "div";}
-  static inline uint64_t getHash(){return opHash::divHash ^ getTypeHash<RealType>();}
+  static inline uint64_t getHash(){return opHash::divHash * typeHash::nbTypeHash + getTypeHash<RealType>();}
 
 
   static RealType inline nearestOp (const PackArgs& p) {
@@ -628,7 +707,7 @@ public:
   typedef vr_packArg<RealType,3> PackArgs;
 
   static const char* OpName(){return "madd";}
-  static inline uint64_t getHash(){return opHash::maddHash ^ getTypeHash<RealType>();}
+  static inline uint64_t getHash(){return opHash::maddHash * typeHash::nbTypeHash + getTypeHash<RealType>();}
 
   static RealType inline nearestOp (const PackArgs& p) {
 #ifdef    USE_VERROU_FMA
@@ -682,7 +761,7 @@ public:
   typedef vr_packArg<RealTypeIn,1> PackArgs;
 
   static const char* OpName(){return "cast";}
-  static inline uint64_t getHash(){return opHash::castHash ^ getTypeHash<RealType>();}
+  static inline uint64_t getHash(){return opHash::castHash * typeHash::nbTypeHash + getTypeHash<RealType>();}
 
   static inline RealTypeOut nearestOp (const PackArgs& p) {
     const RealTypeIn & in(p.arg1);

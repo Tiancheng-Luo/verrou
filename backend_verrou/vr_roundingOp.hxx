@@ -98,6 +98,9 @@ public:
       return res;
     }else{
       const bool doNoChange = vr_rand_bool(&vr_rand);
+#ifdef INTERNAL_BACKEND_DEBUG
+ std::cout << "arg1: "<<  p.arg1 << " arg2: "<< p.arg2 << " bool : " <<doNoChange <<std::endl;
+#endif
       if(doNoChange){
 	return res;
       }else{
@@ -119,33 +122,33 @@ public:
 template<class OP>
 class RoundingRandomDet{
 public:
-    typedef typename OP::RealType RealType;
-    typedef typename OP::PackArgs PackArgs;
+  typedef typename OP::RealType RealType;
+  typedef typename OP::PackArgs PackArgs;
 
-    static inline RealType apply(const PackArgs& p){
-        RealType res=OP::nearestOp(p);
+  static inline RealType apply(const PackArgs& p){
+    RealType res=OP::nearestOp(p);
 
-        if (isNanInf<RealType> (res)){
-            return res;
-        }
+    if (isNanInf<RealType> (res)){
+      return res;
+    }
 
-        OP::check(p,res);
-        const RealType signError=OP::sameSignOfError(p,res);
-        if(signError==0.){
-            return res;
-        }else{
-            const bool doNoChange = vr_rand_bool_det<OP>(&vr_rand, p);
-            if(doNoChange){
-                return res;
-            }else{
-                if(signError>0){
-                    return nextAfter<RealType>(res);
-                }else{
-                    return nextPrev<RealType>(res);
-                }
-            }
-        }
-    } ;
+    OP::check(p,res);
+    const RealType signError=OP::sameSignOfError(p,res);
+    if(signError==0.){
+      return res;
+    }else{
+      const bool doNoChange = vr_rand_bool_det<OP>(&vr_rand, p);
+      if(doNoChange){
+	return res;
+      }else{
+	if(signError>0){
+	  return nextAfter<RealType>(res);
+	}else{
+	  return nextPrev<RealType>(res);
+	}
+      }
+    }
+  } ;
 };
 
 
@@ -173,9 +176,15 @@ public:
     if(error>0){
       const RealType nextRes(nextAfter<RealType>(res));
       const RealType u(nextRes -res);
-      const int s(1);
-      const bool doNotChange = ((vr_rand_int(&vr_rand) * u)
-				> (vr_rand_max() * s * error));
+      double ratio(vr_rand_double(&vr_rand));
+      const bool doNotChange( ratio * u > error);
+#ifdef INTERNAL_BACKEND_DEBUG
+      std::cout << " arg1: "<<  p.arg1
+		<< " arg2: "<< p.arg2
+		<< " ratio: "<< ratio
+		<< " ratioF: " <<   error / u
+		<< " res: "<<doNotChange <<std::endl;
+#endif
       if(doNotChange){
 	return res;
       }else{
@@ -186,9 +195,17 @@ public:
     if(error<0){
       const RealType prevRes(nextPrev<RealType>(res));
       const RealType u(res -prevRes);
-      const int s(-1);
-      const bool doNotChange = ((vr_rand_int(&vr_rand) * u)
-				> (vr_rand_max() * s * error));
+      const double ratio( vr_rand_double(&vr_rand));
+      const bool doNotChange( ratio * u > (-1.)*error);
+
+
+#ifdef INTERNAL_BACKEND_DEBUG
+      std::cout << " arg1: "<<  p.arg1
+		<< " arg2: "<< p.arg2
+		<< " ratio: "<< ratio
+		<< " ratioF: " <<  (-1.)* error / u
+		<< " res: "<<doNotChange <<std::endl;
+#endif
       if(doNotChange){
 	return res;
       }else{
@@ -198,6 +215,61 @@ public:
     return res; //Should not occur
   } ;
 };
+
+
+template<class OP>
+class RoundingAverageDet{
+public:
+  typedef typename OP::RealType RealType;
+  typedef typename OP::PackArgs PackArgs;
+
+  static inline RealType apply(const PackArgs& p){
+    const RealType res=OP::nearestOp(p) ;
+
+    if (isNanInf<RealType> (res)){
+      return res;
+    }
+
+    OP::check(p,res);
+    const RealType error=OP::error(p,res);
+    if(error==0.){
+      return res;
+    }
+
+
+    if(error>0){
+      const RealType nextRes(nextAfter<RealType>(res));
+      const RealType u(nextRes -res);
+      // const bool doNotChange = ((vr_rand_int_det<OP>(&vr_rand, p) * u)
+      //				> (vr_rand_max_det() * error));
+      const double ratio( vr_rand_double_det<OP>(&vr_rand,p));
+      const bool doNotChange( ratio * u > error);
+
+      if(doNotChange){
+	return res;
+      }else{
+	return nextRes;
+      }
+
+    }
+    if(error<0){
+      const RealType prevRes(nextPrev<RealType>(res));
+      const RealType u(res -prevRes);
+      //const bool doNotChange = ((vr_rand_int_det<OP>(&vr_rand,p) * u)
+      //				> (vr_rand_max_det() * (-1. * error)));
+      const double ratio( vr_rand_double_det<OP>(&vr_rand,p));
+      const bool doNotChange( ratio * u > (-1.)*error);
+
+      if(doNotChange){
+	return res;
+      }else{
+	return prevRes;
+      }
+    }
+    return res; //Should not occur
+  } ;
+};
+
 
 
 
@@ -400,6 +472,8 @@ public:
       return RoundingRandomDet<OP>::apply (p);
     case VR_AVERAGE:
       return RoundingAverage<OP>::apply (p);
+    case VR_AVERAGE_DET:
+      return RoundingAverageDet<OP>::apply (p);
     case VR_FARTHEST:
       return RoundingFarthest<OP>::apply (p);
     case VR_FLOAT:
