@@ -78,13 +78,13 @@ class cmdPrepare:
         self.valgrindPath=os.path.join(os.environ["INSTALLPATH"], "bin", "valgrind")
         self.execPath=arg
 
-        def run(self,env="fenv", rounding="nearest"):
+    def run(self,env="fenv", rounding="nearest"):
         self.checkRounding(env, rounding)
         cmd=None
         if env=="fenv":
             cmd=self.execPath + " fenv "+ rounding
 
-            if env=="valgrind":
+        if env=="valgrind":
             if rounding=="memcheck":
                 cmd=self.valgrindPath + " --tool=memcheck " +self.execPath +" valgrind"
             else:
