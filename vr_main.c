@@ -49,6 +49,10 @@ void* backend_checkcancellation_context;
 struct interflop_backend_interface_t backend_checkdenorm;
 void* backend_checkdenorm_context;
 
+struct interflop_backend_interface_t backend_check_float_max;
+void* backend_check_float_max_context;
+
+
 
 
 
@@ -92,19 +96,6 @@ static const HChar* vr_ppOp (Vr_Op op) {
   return "unknown";
 }
 
-// *** Operation precision
-
-typedef enum {
-  VR_PREC_FLT,  // Single
-  VR_PREC_DBL,  // Double
-  VR_PREC_DBL_TO_FLT,
-  VR_PREC_FLT_TO_DBL,
-  VR_PREC_DBL_TO_INT,
-  VR_PREC_DBL_TO_SHT,
-  VR_PREC_FLT_TO_INT,
-  VR_PREC_FLT_TO_SHT,
-  VR_PREC
-} Vr_Prec;
 
 static const HChar* vr_ppPrec (Vr_Prec prec) {
   switch (prec) {
@@ -130,16 +121,7 @@ static const HChar* vr_ppPrec (Vr_Prec prec) {
   return "unknown";
 }
 
-// *** Vector operations
 
-typedef enum {
-  VR_VEC_SCAL,  // Scalar operation
-  VR_VEC_LLO,   // Vector operation, lowest lane only
-  VR_VEC_FULL2,  // Vector operation
-  VR_VEC_FULL4,  // Vector operation
-  VR_VEC_FULL8,  // Vector operation
-  VR_VEC
-} Vr_Vec;
 
 static const HChar* vr_ppVec (Vr_Vec vec) {
   switch (vec) {
@@ -153,6 +135,8 @@ static const HChar* vr_ppVec (Vr_Vec vec) {
     return "vec4 ";
   case VR_VEC_FULL8:
     return "vec8 ";
+  case VR_VEC_UNK:
+    return "unk ";
 
   default:
     return "unknown";
@@ -310,6 +294,9 @@ void vr_ppOpCount (void) {
                     vr_frac (countPrec[VR_INSTR_ON], countPrec[VR_INSTR_OFF]));
 
           for (vec = 0 ; vec<VR_VEC ; ++vec) {
+	    if(vec==VR_VEC_UNK){
+	      continue;
+	    }
             ULong * count = vr_opCount[op][prec][vec];
             if (count[VR_INSTR_ON] + count[VR_INSTR_OFF] > 0) {
               VG_(umsg)("      `- %-6s       %15llu          %15llu  (%3u%%)\n",
@@ -440,6 +427,13 @@ static Bool vr_getOp (const IRExpr * expr, /*OUT*/ IROp * op) {
   return True;
 }
 
+
+static Bool vr_isInstrumented(Vr_Op op,
+			      Vr_Prec prec,
+			      Vr_Vec vec){
+   return vr.instr_op[op] && vr.instr_vec[vec]&&vr.instr_prec[prec] && vr.instrument;
+}
+
 /* Replace a given binary operation by a call to a function
  */
 static Bool vr_replaceBinFpOpScal (IRSB* sb, IRStmt* stmt, IRExpr* expr,
@@ -455,7 +449,7 @@ static Bool vr_replaceBinFpOpScal (IRSB* sb, IRStmt* stmt, IRExpr* expr,
       vr_maybe_record_ErrorOp (VR_ERROR_SCALAR, irop);
   }
 
-  if(!vr.instr_op[op] || !vr.instrument || !vr.instr_scalar) {
+  if(!(vr_isInstrumented(op,prec,vec))) {
      vr_countOp (sb,  op, prec,vec, False);
      addStmtToIRSB (sb, stmt);
     return False;
@@ -509,7 +503,7 @@ static Bool vr_replaceBinFpOpLLO_slow_safe (IRSB* sb, IRStmt* stmt, IRExpr* expr
 					    Vr_Prec prec,
 					    Vr_Vec vec){
   //instrumentation to count operation
-  if(!vr.instr_op[op] || !vr.instrument) {
+  if(!(vr_isInstrumented(op,prec,vec))) {
     vr_countOp (sb,  op, prec,vec,False);
     addStmtToIRSB (sb, stmt);
     return False;
@@ -561,7 +555,7 @@ static Bool vr_replaceBinFpOpLLO_fast_unsafe (IRSB* sb, IRStmt* stmt, IRExpr* ex
 					      Vr_Prec prec,
 					      Vr_Vec vec){
   //instrumentation to count operation
-  if(!vr.instr_op[op] || !vr.instrument) {
+  if(!(vr_isInstrumented(op,prec,vec))) {
     vr_countOp (sb,  op, prec,vec,False);
     addStmtToIRSB (sb, stmt);
     return False;
@@ -625,7 +619,7 @@ static Bool vr_replaceBinFullSSE (IRSB* sb, IRStmt* stmt, IRExpr* expr,
 				  Vr_Op op,
 				  Vr_Prec prec,
 				  Vr_Vec vec) {
-  if(!vr.instr_op[op] || !vr.instrument) {
+  if(!(vr_isInstrumented(op,prec,vec))) {
     vr_countOp (sb,  op, prec,vec, False);
     addStmtToIRSB (sb, stmt);
     return False;
@@ -674,7 +668,7 @@ static Bool vr_replaceBinFullAVX (IRSB* sb, IRStmt* stmt, IRExpr* expr,
 				  Vr_Op op,
 				  Vr_Prec prec,
 				  Vr_Vec vec) {
-  if(!vr.instr_op[op] || !vr.instrument) {
+  if(!(vr_isInstrumented(op,prec,vec))) {
     vr_countOp (sb,  op, prec,vec,False);
     addStmtToIRSB (sb, stmt);
     return False;
@@ -751,14 +745,14 @@ static Bool vr_replaceBinFullAVX (IRSB* sb, IRStmt* stmt, IRExpr* expr,
 
 static Bool vr_replaceFMA (IRSB* sb, IRStmt* stmt, IRExpr* expr,
 			   const HChar* functionName, void* function,
-			   Vr_Op   Op,
-			   Vr_Prec Prec) {
-  if(!vr.instr_op[Op] || !vr.instrument) {
-    vr_countOp (sb,  Op, Prec, VR_VEC_LLO,False);
+			   Vr_Op   op,
+			   Vr_Prec prec) {
+  if(!(vr_isInstrumented(op,prec,VR_VEC_UNK))) {
+    vr_countOp (sb,  op, prec, VR_VEC_UNK,False);
     addStmtToIRSB (sb, stmt);
     return False;
   }
-  vr_countOp (sb,  Op, Prec, VR_VEC_LLO,True);
+  vr_countOp (sb,  op, prec, VR_VEC_UNK,True);
 
 #ifdef USE_VERROU_FMA
   //  IRExpr * arg1 = expr->Iex.Qop.details->arg1; Rounding mode
@@ -766,13 +760,13 @@ static Bool vr_replaceFMA (IRSB* sb, IRStmt* stmt, IRExpr* expr,
   IRExpr * arg3 = expr->Iex.Qop.details->arg3;
   IRExpr * arg4 = expr->Iex.Qop.details->arg4;
   IRTemp res = newIRTemp (sb->tyenv, Ity_I64);
-  if(Prec== VR_PREC_DBL){
+  if(prec== VR_PREC_DBL){
     arg2=vr_F64toI64(sb,arg2);
     arg3=vr_F64toI64(sb,arg3);
     arg4=vr_F64toI64(sb,arg4);
 
   }
-  if(Prec==VR_PREC_FLT){
+  if(prec==VR_PREC_FLT){
     arg2=vr_F32toI64(sb,arg2);
     arg3=vr_F32toI64(sb,arg3);
     arg4=vr_F32toI64(sb,arg4);
@@ -786,12 +780,12 @@ static Bool vr_replaceFMA (IRSB* sb, IRStmt* stmt, IRExpr* expr,
 
 
 
-  if(Prec==VR_PREC_FLT){
+  if(prec==VR_PREC_FLT){
     IRExpr* conv=vr_I64toI32(sb, IRExpr_RdTmp(res ));
     addStmtToIRSB (sb, IRStmt_WrTmp (stmt->Ist.WrTmp.tmp,
     				     IRExpr_Unop (Iop_ReinterpI32asF32, conv )));
   }
-  if(Prec==VR_PREC_DBL){
+  if(prec==VR_PREC_DBL){
     addStmtToIRSB (sb, IRStmt_WrTmp (stmt->Ist.WrTmp.tmp,
 				     IRExpr_Unop (Iop_ReinterpI64asF64, IRExpr_RdTmp(res))));
   }
@@ -804,16 +798,17 @@ static Bool vr_replaceFMA (IRSB* sb, IRStmt* stmt, IRExpr* expr,
 
 
 
+
 static Bool vr_replaceCast (IRSB* sb, IRStmt* stmt, IRExpr* expr,
 			    const HChar* functionName, void* function,
-			    Vr_Op   Op,
-			    Vr_Prec Prec) {
-  if(!vr.instr_op[Op] || !vr.instrument ) {
-    vr_countOp (sb,  Op, Prec, VR_VEC_SCAL,False);
+			    Vr_Op   op,
+			    Vr_Prec prec) {
+  if(!(vr_isInstrumented(op,prec,VR_VEC_UNK))) {
+    vr_countOp (sb,  op, prec, VR_VEC_UNK,False);
     addStmtToIRSB (sb, stmt);
     return False;
   }
-  vr_countOp (sb,  Op, Prec, VR_VEC_SCAL,True);
+  vr_countOp (sb,  op, prec, VR_VEC_UNK,True);
 
   IRExpr * arg2 = expr->Iex.Binop.arg2;
 
@@ -841,16 +836,24 @@ static Bool vr_replaceCast (IRSB* sb, IRStmt* stmt, IRExpr* expr,
 
 static Bool vr_instrumentOp (IRSB* sb, IRStmt* stmt, IRExpr * expr, IROp op, vr_backend_name_t bc) {
    Bool checkCancellation= (vr.checkCancellation || vr.dumpCancellation);
-   if(vr.backend==vr_verrou && !checkCancellation){
+   if(vr.backend==vr_verrou && !checkCancellation && ! vr.checkFloatMax){
 #define bcName(OP) "vr_verrou"#OP, vr_verrou##OP
 #define bcNameWithCC(OP) "vr_verrou"#OP, vr_verrou##OP
 #include "vr_instrumentOp_impl.h"
 #undef bcName
 #undef bcNameWithCC
    }
-   if(vr.backend==vr_verrou && checkCancellation){
+   if(vr.backend==vr_verrou && checkCancellation && ! vr.checkFloatMax){
 #define bcName(OP) "vr_verrou"#OP, vr_verrou##OP
 #define bcNameWithCC(OP) "vr_verroucheckcancellation"#OP, vr_verroucheckcancellation##OP
+#include "vr_instrumentOp_impl.h"
+#undef bcName
+#undef bcNameWithCC
+   }
+
+   if(vr.backend==vr_verrou && !checkCancellation && vr.checkFloatMax){
+#define bcName(OP) "vr_verroucheck_float_max"#OP, vr_verroucheck_float_max##OP
+#define bcNameWithCC(OP) "vr_verroucheck_float_max"#OP, vr_verroucheck_float_max##OP
 #include "vr_instrumentOp_impl.h"
 #undef bcName
 #undef bcNameWithCC
@@ -1022,6 +1025,7 @@ IRSB* vr_instrument ( VgCallbackClosure* closure,
 					     linenumPtr);
       if(! success || (**filenamePtr)==0){
 	filenamePtr=&filenamenoname;
+        *linenumPtr=0;
       }
       if(genIRSBTrace){
 	vr_traceBB_trace_imark(traceBB,*fnnamePtr, *filenamePtr,*linenumPtr);
@@ -1038,8 +1042,10 @@ IRSB* vr_instrument ( VgCallbackClosure* closure,
         Bool doInstrContainFloat= vr_instrumentExpr (sbOut, st, st->Ist.WrTmp.data);
 	doLineContainFloat=doLineContainFloat   || doInstrContainFloat;
 	doIRSBFContainFloat=doIRSBFContainFloat || doInstrContainFloat;
-        break;
+      }else{
+         addStmtToIRSB (sbOut, sbIn->stmts[i]);
       }
+      break;
     default:
       addStmtToIRSB (sbOut, sbIn->stmts[i]);
     }
@@ -1075,11 +1081,12 @@ static void vr_fini(Int exitcode)
 
 
   vr_ppOpCount ();
-  interflop_verrou_finalyze(backend_verrou_context);
+  interflop_verrou_finalize(backend_verrou_context);
 #ifdef USE_VERROU_QUAD
-  interflop_mcaquad_finalyze(backend_mcaquad_context);
+  interflop_mcaquad_finalize(backend_mcaquad_context);
 #endif
-  interflop_checkcancellation_finalyze(backend_checkcancellation_context);
+  interflop_checkcancellation_finalize(backend_checkcancellation_context);
+  interflop_check_float_max_finalize(backend_check_float_max_context);
 
 
   if (vr.genExclude) {
@@ -1094,7 +1101,7 @@ static void vr_fini(Int exitcode)
 
   if(vr.genTrace){
     vr_traceBB_dumpCov();
-    vr_traceBB_finalyze();
+    vr_traceBB_finalize();
   }
   if (vr.dumpCancellation){
      vr_dumpIncludeSourceList(vr.cancellationSource, NULL, vr.cancellationDumpFile );
@@ -1204,6 +1211,13 @@ static void vr_post_clo_init(void)
 
 
 
+   backend_check_float_max=interflop_check_float_max_init(&backend_check_float_max_context);
+   ifmax_set_max_handler(&vr_handle_FLT_MAX);
+   ifmax_set_debug_print_op(&print_op);//Use only verrou backend is configured to use it
+
+   VG_(umsg)("Backend %s : %s\n", interflop_check_float_max_get_backend_name(), interflop_check_float_max_get_backend_version() );
+
+
 
    /*Init outfile cancellation*/
    if(vr.roundingMode==VR_FTZ){
@@ -1225,10 +1239,12 @@ static void vr_post_clo_init(void)
      }
      vr.backend=vr_checkdenorm;
   }
-
+  if(vr.checkFloatMax && vr.backend!=vr_verrou){
+    VG_(tool_panic)("backend check_float_max is only compatible with verrou backend");
+  }
 
   if(vr.genTrace){
-     vr_traceBB_initialize();
+     vr_traceBB_initialize(vr.outputTraceRep);
    }
 
    /*If no operation selected the default is all*/
@@ -1249,9 +1265,21 @@ static void vr_post_clo_init(void)
      if(vr.instr_op[opIt]==True) VG_(umsg)("yes\n");
      else VG_(umsg)("no\n");
    }
-   VG_(umsg)("Instrumented scalar operations : ");
-   if(vr.instr_scalar) VG_(umsg)("yes\n");
-   else VG_(umsg)("no\n");
+   VG_(umsg)("Instrumented vectorized operations :\n");
+   int vecIt;
+   for (vecIt=0; vecIt< VR_VEC ;vecIt++){
+      VG_(umsg)("\t%s : ", vr_ppVec(vecIt));
+      if(vr.instr_vec[vecIt]==True) VG_(umsg)("yes\n");
+      else VG_(umsg)("no\n");
+   }
+
+   VG_(umsg)("Instrumented type :\n");
+   int precIt;
+   for (precIt=0; precIt< 2 ;precIt++){
+      VG_(umsg)("\t%s : ", vr_ppPrec(precIt));
+      if(vr.instr_prec[precIt]==True) VG_(umsg)("yes\n");
+      else VG_(umsg)("no\n");
+   }
 
    if(!vr.instrument){
      vr.instrument = True;

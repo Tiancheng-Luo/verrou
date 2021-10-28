@@ -32,8 +32,8 @@
 
 #include "vr_main.h"
 //#include "backend_verrou/vr_rand.h"
-#include "backend_verrou/interflop_verrou.h"
-#include "backend_mcaquad/interflop_mcaquad.h"
+//#include "backend_verrou/interflop_verrou.h"
+//#include "backend_mcaquad/interflop_mcaquad.h"
 
 void vr_env_clo (const HChar* env, const HChar *clo) {
   HChar* val = VG_(getenv)(env);
@@ -50,7 +50,6 @@ void vr_clo_defaults (void) {
   vr.backend = vr_verrou;
   vr.roundingMode = VR_NEAREST;
   vr.count = True;
-  vr.instr_scalar = False;
   vr.instrument = VR_INSTR_ON;
   vr.verbose = False;
   vr.unsafe_llo_optim = False;
@@ -65,11 +64,21 @@ void vr_clo_defaults (void) {
 
   vr.genTrace=False;
   vr.includeTrace = NULL;
+  vr.outputTraceRep = NULL;
 
   int opIt;
   for(opIt=0 ; opIt<VR_OP ; opIt++){
     vr.instr_op[opIt]=False;
   }
+  int vecIt;
+  for(vecIt=0 ; vecIt<VR_VEC ; vecIt++){
+    vr.instr_vec[vecIt]=True;
+  }
+  vr.instr_vec[VR_VEC_SCAL]=False;
+
+  vr.instr_prec[VR_PREC_FLT]=True;
+  vr.instr_prec[VR_PREC_DBL]=True;
+  vr.instr_prec[VR_PREC_DBL_TO_FLT]=True;
 
   vr.firstSeed=(unsigned int)(-1);
   vr.mca_precision_double=53;
@@ -89,6 +98,8 @@ void vr_clo_defaults (void) {
   vr.ftz=False;
   vr.dumpDenorm=False;
   vr.cancellationSource=NULL;
+
+  vr.checkFloatMax=False;
 }
 
 
@@ -177,9 +188,37 @@ Bool vr_process_clo (const HChar *arg) {
      vr.checknan= bool_val;
   }
 
+  else if (VG_BOOL_CLO (arg, "--check-max-float", bool_val)) {
+    vr.checkFloatMax=bool_val;
+  }
+
   //Options to choose op to instrument
   else if (VG_BOOL_CLO (arg, "--vr-instr-scalar", bool_val)) {
-    vr.instr_scalar= bool_val;
+    vr.instr_vec[VR_VEC_SCAL]= bool_val;
+  }
+
+  else if (VG_BOOL_CLO (arg, "--vr-instr-llo", bool_val)) {
+    vr.instr_vec[VR_VEC_LLO]= bool_val;
+  }
+
+  else if (VG_BOOL_CLO (arg, "--vr-instr-vec2", bool_val)) {
+    vr.instr_vec[VR_VEC_FULL2]= bool_val;
+  }
+
+  else if (VG_BOOL_CLO (arg, "--vr-instr-vec4", bool_val)) {
+     vr.instr_vec[VR_VEC_FULL4]= bool_val;
+  }
+
+  else if (VG_BOOL_CLO (arg, "--vr-instr-vec8", bool_val)) {
+     vr.instr_vec[VR_VEC_FULL8]= bool_val;
+  }
+
+  else if (VG_BOOL_CLO (arg, "--vr-instr-flt", bool_val)) {
+     vr.instr_prec[VR_PREC_FLT]= bool_val;
+  }
+
+  else if (VG_BOOL_CLO (arg, "--vr-instr-dbl", bool_val)) {
+     vr.instr_prec[VR_PREC_DBL]= bool_val;
   }
 
   //Option --vr-verbose (to avoid verbose of valgrind)
@@ -222,6 +261,10 @@ Bool vr_process_clo (const HChar *arg) {
     vr.genTrace = True;
   }
 
+  else if (VG_STR_CLOM (cloPD, arg, "--output-trace-rep", str)) {
+    //vr.includeSourceFile = VG_(strdup)("vr.process_clo.gen-source", str);
+    vr.outputTraceRep = VG_(expand_file_name)("vr.process_clo.trace-rep", str);
+  }
   // Instrumentation of only specified source lines
   else if (VG_STR_CLOM (cloPD, arg, "--gen-source", str)) {
     //vr.includeSourceFile = VG_(strdup)("vr.process_clo.gen-source", str);
