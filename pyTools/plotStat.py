@@ -618,7 +618,6 @@ class config_stat:
 if __name__=="__main__":
     conf=config_stat(sys.argv)
     nbSamples=conf.getSampleConfig()
-    nbProc=conf.getNbProc()
 
     if conf.runScript()!=None:
         verrou_run_stat(conf.runScript(), conf.repName(), nbSamples, conf.num_threads())
